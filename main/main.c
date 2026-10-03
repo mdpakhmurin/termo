@@ -47,6 +47,6 @@ void watch_button(void)
 void app_main(void)
 {
     printf("Hello world!\n");
-    setup_i2c();
+    // setup_i2c();
     watch_button();
 }
