@@ -6,6 +6,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "wifi_secrets.h"
 
 #define BOOT_BUTTON_GPIO 0
 
@@ -50,7 +51,8 @@ void watch_button(void)
 void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        printf("Wi-Fi запустился\n");
+        printf("Wi-Fi запустился, подключаюсь...\n");
+        esp_wifi_connect();
     }
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         printf("Отключились от роутера\n");
@@ -90,6 +92,14 @@ void start_wifi(void)
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&config));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASSWORD,
+        },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
     ESP_ERROR_CHECK(esp_wifi_start());
 }
