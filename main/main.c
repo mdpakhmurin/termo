@@ -6,8 +6,13 @@
 #include "nvs_flash.h"
 #include "wifi.h"
 #include "wifi_secrets.h"
+#include "mqtt.h"
+#include "mqtt_secrets.h"
 
 #define BOOT_BUTTON_GPIO 0
+#define LED_GPIO         2
+
+static volatile int temperature = 20;
 
 void setup_i2c(void)
 {
@@ -27,9 +32,24 @@ void setup_i2c(void)
     printf("Шина I2C настроена\n");
 }
 
+void publish_temperature(void)
+{
+    char text[16];
+    snprintf(text, sizeof(text), "%d", temperature);
+
+    if (mqtt_publish("termo/temperature", text)) {
+        printf("Отправили температуру: %s\n", text);
+    } else {
+        printf("Нет связи с брокером, температура не отправлена\n");
+    }
+}
+
 void watch_button(void)
 {
     gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
+
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, 0);
 
     int last_button_state = 1;
     while (true) {
@@ -37,8 +57,17 @@ void watch_button(void)
         if (current_button_state != last_button_state) {
             if (current_button_state == 0) {
                 printf("Кнопка нажата\n");
+                gpio_set_level(LED_GPIO, 1);
+
+                if (temperature == 30) {
+                    temperature = 10;
+                } else {
+                    temperature = 30;
+                }
+                publish_temperature();
             } else {
                 printf("Кнопка отпущена\n");
+                gpio_set_level(LED_GPIO, 0);
             }
         }
         last_button_state = current_button_state;
@@ -54,6 +83,16 @@ void setup_nvs(void)
     printf("NVS готова\n");
 }
 
+void send_temperature_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(10000));
+
+    while (true) {
+        publish_temperature();
+        vTaskDelay(pdMS_TO_TICKS(60000));
+    }
+}
+
 void app_main(void)
 {
     printf("Hello world!\n");
@@ -62,6 +101,8 @@ void app_main(void)
 
     setup_nvs();
     wifi_connect(WIFI_SSID, WIFI_PASSWORD);
+    mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
+    xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
 
     watch_button();
 }
