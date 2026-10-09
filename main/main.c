@@ -93,6 +93,23 @@ void send_temperature_task(void *arg)
     }
 }
 
+void wifi_led_blink_task(void *arg)
+{
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+
+    bool led_on = false;
+    while (true) {
+        if (!wifi_is_connected()) {
+            led_on = !led_on;                   
+            gpio_set_level(LED_GPIO, led_on);
+        } else if (led_on) {
+            led_on = false;                     
+            gpio_set_level(LED_GPIO, 0);
+        }
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+}
+
 void app_main(void)
 {
     printf("Hello world!\n");
@@ -100,6 +117,7 @@ void app_main(void)
     // setup_i2c();
 
     setup_nvs();
+    xTaskCreate(wifi_led_blink_task, "wifi_led", 2048, NULL, 5, NULL);
     wifi_connect(WIFI_SSID, WIFI_PASSWORD);
     mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
     xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);

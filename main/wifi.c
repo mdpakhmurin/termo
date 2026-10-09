@@ -5,6 +5,8 @@
 #include "nvs_flash.h"
 #include "wifi.h"
 
+static volatile bool connected = false;
+
 static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -13,11 +15,18 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
     }
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         printf("Отключились от роутера, подключаюсь снова...\n");
+        connected = false;
         esp_wifi_connect();
     }
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         printf("Получили IP!\n");
+        connected = true;
     }
+}
+
+bool wifi_is_connected(void)
+{
+    return connected;
 }
 
 static void setup_wifi_events(void)
