@@ -8,13 +8,14 @@
 #include "wifi_secrets.h"
 #include "mqtt.h"
 #include "mqtt_secrets.h"
+#include "bme280.h"
 
 #define BOOT_BUTTON_GPIO 0
 #define LED_GPIO         2
 
-static volatile int temperature = 20;
+static volatile float temperature = 0;
 
-void setup_i2c(void)
+i2c_master_bus_handle_t setup_i2c(void)
 {
     // Настройки шины I2C
     i2c_master_bus_config_t bus_config = {
@@ -30,17 +31,37 @@ void setup_i2c(void)
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus));
 
     printf("Шина I2C настроена\n");
+    return bus;
+}
+
+void setup_bme280(void)
+{
+    i2c_master_bus_handle_t bus = setup_i2c();
+    if (bme280_init(bus)) {
+        printf("Датчик BME280 готов\n");
+    }
 }
 
 void publish_temperature(void)
 {
     char text[16];
-    snprintf(text, sizeof(text), "%d", temperature);
+    snprintf(text, sizeof(text), "%.1f", temperature);
 
     if (mqtt_publish("termo/temperature", text)) {
         printf("Отправили температуру: %s\n", text);
     } else {
         printf("Нет связи с брокером, температура не отправлена\n");
+    }
+}
+
+void measure_and_publish(void)
+{
+    float measured;
+    if (bme280_read_temperature(&measured)) {
+        temperature = measured;
+        publish_temperature();
+    } else {
+        printf("Не удалось прочитать температуру\n");
     }
 }
 
@@ -59,12 +80,7 @@ void watch_button(void)
                 printf("Кнопка нажата\n");
                 gpio_set_level(LED_GPIO, 1);
 
-                if (temperature == 30) {
-                    temperature = 10;
-                } else {
-                    temperature = 30;
-                }
-                publish_temperature();
+                measure_and_publish();
             } else {
                 printf("Кнопка отпущена\n");
                 gpio_set_level(LED_GPIO, 0);
@@ -88,7 +104,7 @@ void send_temperature_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(10000));
 
     while (true) {
-        publish_temperature();
+        measure_and_publish();
         vTaskDelay(pdMS_TO_TICKS(60000));
     }
 }
@@ -114,7 +130,7 @@ void app_main(void)
 {
     printf("Hello world!\n");
 
-    // setup_i2c();
+    setup_bme280();
 
     setup_nvs();
     xTaskCreate(wifi_led_blink_task, "wifi_led", 2048, NULL, 5, NULL);
