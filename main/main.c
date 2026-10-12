@@ -16,6 +16,9 @@
 
 static volatile float temperature = 0;
 
+static volatile bool need_blink = false;
+static volatile bool setup_mode = false;
+
 i2c_master_bus_handle_t setup_i2c(void)
 {
     // Настройки шины I2C
@@ -50,6 +53,7 @@ void publish_temperature(void)
 
     if (mqtt_publish("termo/temperature", text)) {
         printf("Отправили температуру: %s\n", text);
+        need_blink = true;
     } else {
         printf("Нет связи с брокером, температура не отправлена\n");
     }
@@ -107,17 +111,33 @@ void send_temperature_task(void *arg)
     }
 }
 
-void wifi_led_blink_task(void *arg)
+/* Светодиод-индикатор:
+   - горит постоянно в режиме настройки;
+   - мигает, пока нет связи с роутером или брокером;
+   - не горит, когда всё подключено;
+   - мигает при каждой отправке данных */
+void status_led_task(void *arg)
 {
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
 
     bool led_on = false;
     while (true) {
-        if (!wifi_is_connected()) {
-            led_on = !led_on;                   
+        bool online = wifi_is_connected() && mqtt_is_connected();
+
+        if (setup_mode) {
+            led_on = true;
+            gpio_set_level(LED_GPIO, 1);
+        } else if (!online) {
+            led_on = !led_on;
             gpio_set_level(LED_GPIO, led_on);
+        } else if (need_blink) {
+            need_blink = false;
+            gpio_set_level(LED_GPIO, 1);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            gpio_set_level(LED_GPIO, 0);
+            led_on = false;
         } else if (led_on) {
-            led_on = false;                     
+            led_on = false;
             gpio_set_level(LED_GPIO, 0);
         }
         vTaskDelay(pdMS_TO_TICKS(250));
@@ -131,7 +151,7 @@ void app_main(void)
     setup_bme280();
 
     setup_nvs();
-    xTaskCreate(wifi_led_blink_task, "wifi_led", 2048, NULL, 5, NULL);
+    xTaskCreate(status_led_task, "status_led", 2048, NULL, 5, NULL);
     wifi_init();
 
     char ssid[33];
@@ -141,6 +161,7 @@ void app_main(void)
         mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
         xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
     } else {
+        setup_mode = true;
         wifi_start_access_point();
         setup_page_start();
     }

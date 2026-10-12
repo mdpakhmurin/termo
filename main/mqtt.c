@@ -33,6 +33,11 @@ void mqtt_start(const char *uri, const char *username, const char *password)
     esp_mqtt_client_start(client);
 }
 
+bool mqtt_is_connected(void)
+{
+    return connected;
+}
+
 bool mqtt_publish(const char *topic, const char *value)
 {
     if (!connected) {
