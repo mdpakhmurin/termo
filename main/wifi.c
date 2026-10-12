@@ -3,6 +3,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "wifi.h"
 #include "wifi_secrets.h"
 
@@ -37,6 +38,25 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
 bool wifi_is_connected(void)
 {
     return connected;
+}
+
+bool wifi_save_credentials(const char *ssid, const char *password)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK) {
+        return false;
+    }
+
+    esp_err_t err = nvs_set_str(nvs, "ssid", ssid);
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs, "password", password);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    return err == ESP_OK;
 }
 
 static void setup_wifi_events(void)

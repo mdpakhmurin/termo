@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include "esp_http_server.h"
 #include "setup_page.h"
+#include "wifi.h"
 
 // HTML-страница из файла setup_page.html
 extern const char PAGE[] asm("_binary_setup_page_html_start");
@@ -53,7 +54,23 @@ static esp_err_t on_save(httpd_req_t *req)
     printf("Получили сеть: %s (пароль: %d символов)\n", ssid, (int)strlen(password));
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Получено!</h2>");
+
+    size_t ssid_length = strlen(ssid);
+    size_t password_length = strlen(password);
+    if (ssid_length == 0 || ssid_length > 32) {
+        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Имя сети: от 1 до 32 символов</h2>");
+    }
+    if (password_length != 0 && (password_length < 8 || password_length > 63)) {
+        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Пароль: от 8 до 63 символов</h2>");
+    }
+
+    if (!wifi_save_credentials(ssid, password)) {
+        printf("Не удалось сохранить\n");
+        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Ошибка сохранения</h2>");
+    }
+
+    printf("Сохранено\n");
+    return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сохранено!</h2>");
 }
 
 void setup_page_start(void)
