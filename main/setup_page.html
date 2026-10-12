@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Termo</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 320px;
+            margin: 40px auto;
+            padding: 0 16px;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            margin: 6px 0;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <h2>Настройка Wi-Fi</h2>
+    <form method="POST" action="/save">
+        <input name="ssid" placeholder="Имя сети" required>
+        <input name="password" type="password" placeholder="Пароль">
+        <button>Сохранить</button>
+    </form>
+</body>
+</html>

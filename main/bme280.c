@@ -51,7 +51,7 @@ static bool add_device(i2c_master_bus_handle_t bus, uint16_t address)
 bool bme280_init(i2c_master_bus_handle_t bus)
 {
     if (!add_device(bus, ADDRESS)) {
-        printf("Датчик не отвечает. Проверь провода: VIN->3V3, GND->GND, SDA->D21, SCL->D22\n");
+        printf("Датчик не отвечает. Проверить: VIN->3V3, GND->GND, SDA->D21, SCL->D22\n");
         return false;
     }
 

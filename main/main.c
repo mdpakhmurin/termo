@@ -9,6 +9,7 @@
 #include "mqtt.h"
 #include "mqtt_secrets.h"
 #include "bme280.h"
+#include "setup_page.h"
 
 #define BOOT_BUTTON_GPIO 0
 #define LED_GPIO         2
@@ -135,6 +136,7 @@ void app_main(void)
     setup_nvs();
     xTaskCreate(wifi_led_blink_task, "wifi_led", 2048, NULL, 5, NULL);
     wifi_connect(WIFI_SSID, WIFI_PASSWORD);
+    setup_page_start();
     mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
     xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
 

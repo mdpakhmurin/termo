@@ -1,3 +1,4 @@
-idf_component_register(SRCS "wifi.c" "mqtt.c" "bme280.c" "main.c"
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_wifi esp_netif nvs_flash
-                       INCLUDE_DIRS "")
+idf_component_register(SRCS "wifi.c" "mqtt.c" "bme280.c" "setup_page.c" "main.c"
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_wifi esp_netif nvs_flash esp_http_server
+                       INCLUDE_DIRS ""
+                       EMBED_TXTFILES "setup_page.html")
