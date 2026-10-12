@@ -8,7 +8,6 @@
 // HTML-страница из файла setup_page.html
 extern const char PAGE[] asm("_binary_setup_page_html_start");
 
-// Браузер кодирует спецсимволы: пробел -> "+", "@" -> "%40". Возвращаем как было
 static void url_decode(char *text)
 {
     char *out = text;
