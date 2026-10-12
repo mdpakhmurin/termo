@@ -4,8 +4,8 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "nvs_flash.h"
+#include "esp_system.h"
 #include "wifi.h"
-#include "wifi_secrets.h"
 #include "mqtt.h"
 #include "mqtt_secrets.h"
 #include "bme280.h"
@@ -70,24 +70,21 @@ void watch_button(void)
 {
     gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
 
-    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_GPIO, 0);
+    int pressed_ticks = 0;
 
-    int last_button_state = 1;
     while (true) {
         int current_button_state = gpio_get_level(BOOT_BUTTON_GPIO);
-        if (current_button_state != last_button_state) {
-            if (current_button_state == 0) {
-                printf("Кнопка нажата\n");
-                gpio_set_level(LED_GPIO, 1);
-
-                measure_and_publish();
-            } else {
-                printf("Кнопка отпущена\n");
-                gpio_set_level(LED_GPIO, 0);
+        if (current_button_state == 0) {
+            pressed_ticks++;
+            if (pressed_ticks == 30) {   // 30 × 100 мс
+                printf("Долгое нажатие: сброс сети, переход в режим настройки\n");
+                printf("Устройство будет перезаружено\n");
+                wifi_clear_credentials();
+                esp_restart();
             }
+        } else {
+            pressed_ticks = 0;
         }
-        last_button_state = current_button_state;
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -102,7 +99,7 @@ void setup_nvs(void)
 
 void send_temperature_task(void *arg)
 {
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(10000));   // время подключиться к брокеру
 
     while (true) {
         measure_and_publish();
@@ -135,10 +132,18 @@ void app_main(void)
 
     setup_nvs();
     xTaskCreate(wifi_led_blink_task, "wifi_led", 2048, NULL, 5, NULL);
-    wifi_connect(WIFI_SSID, WIFI_PASSWORD);
-    setup_page_start();
-    mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
-    xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
+    wifi_init();
+
+    char ssid[33];
+    char password[64];
+    if (wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
+        wifi_connect(ssid, password);
+        mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
+        xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
+    } else {
+        wifi_start_access_point();
+        setup_page_start();
+    }
 
     watch_button();
 }

@@ -59,35 +59,53 @@ bool wifi_save_credentials(const char *ssid, const char *password)
     return err == ESP_OK;
 }
 
-static void setup_wifi_events(void)
+bool wifi_load_credentials(char *ssid, size_t ssid_size, char *password, size_t password_size)
 {
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    nvs_handle_t nvs;
+    if (nvs_open("wifi", NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
 
+    esp_err_t err = nvs_get_str(nvs, "ssid", ssid, &ssid_size);
+    if (err == ESP_OK) {
+        err = nvs_get_str(nvs, "password", password, &password_size);
+    }
+    nvs_close(nvs);
+
+    return err == ESP_OK;
+}
+
+void wifi_clear_credentials(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    nvs_erase_all(nvs);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+void wifi_init(void)
+{
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL));
 
-    printf("Обработчик событий Wi-Fi подключён\n");
-}
-
-static void setup_network(void)
-{
-    ESP_ERROR_CHECK(esp_netif_init());
-    esp_netif_create_default_wifi_sta();   // wifi - клиент
-    esp_netif_create_default_wifi_ap();    // wifi - точка доступ
-
-    printf("Сетевой стек готов\n");
-}
-
-static void start_wifi(const char *ssid, const char *password)
-{
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&config));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
-    wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    printf("Wi-Fi иницализрован\n");
+}
+
+void wifi_start_access_point(void)
+{
+    printf("Раздаю сеть %s\n", SETUP_AP_SSID);
+    esp_netif_create_default_wifi_ap();
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 
     wifi_config_t ap_config = {
         .ap = {
@@ -105,9 +123,14 @@ static void start_wifi(const char *ssid, const char *password)
 
 void wifi_connect(const char *ssid, const char *password)
 {
-    ESP_ERROR_CHECK(nvs_flash_init());
+    printf("Подключаюсь к сети %s\n", ssid);
+    esp_netif_create_default_wifi_sta();
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
-    setup_wifi_events();
-    setup_network();
-    start_wifi(ssid, password);
+    wifi_config_t wifi_config = {0};
+    strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+
+    ESP_ERROR_CHECK(esp_wifi_start());
 }

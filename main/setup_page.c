@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
 #include "esp_http_server.h"
 #include "setup_page.h"
 #include "wifi.h"
@@ -69,8 +72,12 @@ static esp_err_t on_save(httpd_req_t *req)
         return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Ошибка сохранения</h2>");
     }
 
-    printf("Сохранено\n");
-    return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сохранено!</h2>");
+    printf("Сохранено, перезагружаюсь\n");
+    httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сохранено! Устройство будет перезагружено в режиме подключения</h2>");
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();                  
+    return ESP_OK;
 }
 
 void setup_page_start(void)
