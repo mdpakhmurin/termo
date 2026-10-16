@@ -138,6 +138,35 @@ void wifi_clear_credentials(void)
     nvs_close(nvs);
 }
 
+void wifi_request_setup_mode(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    nvs_set_u8(nvs, "setup", 1);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+bool wifi_take_setup_request(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK) {
+        return false;
+    }
+
+    uint8_t requested = 0;
+    nvs_get_u8(nvs, "setup", &requested);
+    if (requested) {
+        nvs_erase_key(nvs, "setup");
+        nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    return requested != 0;
+}
+
 void wifi_init(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());

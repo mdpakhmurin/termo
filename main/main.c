@@ -80,9 +80,9 @@ void watch_button(void)
         if (current_button_state == 0) {
             pressed_ticks++;
             if (pressed_ticks == 30) {   // 30 × 100 мс
-                printf("Долгое нажатие: сброс сети, переход в режим настройки\n");
+                printf("Долгое нажатие: переход в режим настройки\n");
                 printf("Устройство будет перезаружено\n");
-                wifi_clear_credentials();
+                wifi_request_setup_mode();
                 esp_restart();
             }
         } else {
@@ -153,9 +153,11 @@ void app_main(void)
     xTaskCreate(status_led_task, "status_led", 2048, NULL, 5, NULL);
     wifi_init();
 
+    bool setup_requested = wifi_take_setup_request();
+
     char ssid[33];
     char password[64];
-    if (wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
+    if (!setup_requested && wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
         wifi_connect(ssid, password);
         mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
         xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);

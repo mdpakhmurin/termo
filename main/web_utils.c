@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -18,6 +19,33 @@ void url_decode(char *text)
         }
     }
     *out = '\0';
+}
+
+void json_escape(const char *in, char *out, size_t size)
+{
+    size_t pos = 0;
+    for (; *in != '\0'; in++) {
+        unsigned char c = (unsigned char)*in;
+        char piece[8];
+        if (c == '"' || c == '\\') {
+            piece[0] = '\\';
+            piece[1] = (char)c;
+            piece[2] = '\0';
+        } else if (c < 0x20) {
+            snprintf(piece, sizeof(piece), "\\u%04x", c);
+        } else {
+            piece[0] = (char)c;
+            piece[1] = '\0';
+        }
+
+        size_t length = strlen(piece);
+        if (pos + length >= size) {
+            break;
+        }
+        memcpy(out + pos, piece, length);
+        pos += length;
+    }
+    out[pos] = '\0';
 }
 
 void html_escape(const char *in, char *out, size_t size)

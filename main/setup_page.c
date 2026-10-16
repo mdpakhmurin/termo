@@ -11,48 +11,47 @@
 // HTML-страница из файла setup_page.html
 extern const char PAGE[] asm("_binary_setup_page_html_start");
 
-// Метка в HTML, на место которой вставляем найденные сети
-#define NETWORKS_MARKER "<!--NETWORKS-->"
-
 #define MAX_NETWORKS 15
-
-static const char *signal_bars(int rssi)
-{
-    if (rssi > -55) return "▂▄▆█";
-    if (rssi > -65) return "▂▄▆";
-    if (rssi > -75) return "▂▄";
-    return "▂";
-}
-
-static void send_network_options(httpd_req_t *req)
-{
-    static wifi_network_t networks[MAX_NETWORKS];
-    int count = wifi_scan(networks, MAX_NETWORKS);
-
-    for (int i = 0; i < count; i++) {
-        char safe_name[200];
-        html_escape(networks[i].ssid, safe_name, sizeof(safe_name));
-
-        char option[512];
-        snprintf(option, sizeof(option), "<option value=\"%s\">%s  %s%s</option>",
-                 safe_name, safe_name, signal_bars(networks[i].rssi), networks[i].secured ? " 🔒" : "");
-        httpd_resp_sendstr_chunk(req, option);
-    }
-}
 
 static esp_err_t on_get_page(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_sendstr(req, PAGE);
+}
 
-    const char *marker = strstr(PAGE, NETWORKS_MARKER);
-    if (marker == NULL) {
-        return httpd_resp_sendstr(req, PAGE);
+static esp_err_t on_get_state(httpd_req_t *req)
+{
+    static char json[4096];
+    static wifi_network_t networks[MAX_NETWORKS];
+
+    char saved_ssid[33] = "";
+    char saved_password[64];
+    wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_password, sizeof(saved_password));
+
+    char safe_ssid[200];
+    json_escape(saved_ssid, safe_ssid, sizeof(safe_ssid));
+
+    int pos = snprintf(json, sizeof(json), "{\"saved_ssid\":\"%s\",\"networks\":[", safe_ssid);
+
+    int count = wifi_scan(networks, MAX_NETWORKS);
+    for (int i = 0; i < count; i++) {
+        json_escape(networks[i].ssid, safe_ssid, sizeof(safe_ssid));
+        int written = snprintf(json + pos, sizeof(json) - pos,
+                               "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secured\":%s}",
+                               i > 0 ? "," : "",
+                               safe_ssid,
+                               networks[i].rssi,
+                               networks[i].secured ? "true" : "false");
+        if (written < 0 || pos + written >= (int)sizeof(json) - 3) {
+            break;
+        }
+        pos += written;
     }
 
-    httpd_resp_send_chunk(req, PAGE, marker - PAGE);                  // всё до метки
-    send_network_options(req);                                        // список сетей
-    httpd_resp_sendstr_chunk(req, marker + strlen(NETWORKS_MARKER));  // всё после метки
-    return httpd_resp_sendstr_chunk(req, NULL);                       // NULL — ответ закончен
+    snprintf(json + pos, sizeof(json) - pos, "]}");
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, json);
 }
 
 static esp_err_t on_save(httpd_req_t *req)
@@ -83,7 +82,7 @@ static esp_err_t on_save(httpd_req_t *req)
     if (ssid_length == 0 || ssid_length > 32) {
         return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Имя сети: от 1 до 32 символов</h2>");
     }
-    if (password_length != 0 && (password_length < 8 || password_length > 63)) {
+    if (password_length < 8 || password_length > 63) {
         return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Пароль: от 8 до 63 символов</h2>");
     }
 
@@ -92,11 +91,28 @@ static esp_err_t on_save(httpd_req_t *req)
         return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Ошибка сохранения</h2>");
     }
 
-    printf("Сохранено, перезагружаюсь\n");
-    httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сохранено! Устройство будет перезагружено в режиме подключения</h2>");
+    printf("Сеть сохранена\n");
+
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static esp_err_t on_finish(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+
+    char ssid[33];
+    char password[64];
+    if (!wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
+        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сначала сохраните сеть</h2>");
+    }
+
+    printf("Настройка завершена, перезагружаюсь\n");
+    httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Настройка завершена. Устройство будет перезагружено</h2>");
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();                  
+    esp_restart();
     return ESP_OK;
 }
 
@@ -107,9 +123,13 @@ void setup_page_start(void)
     ESP_ERROR_CHECK(httpd_start(&server, &config));
 
     httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = on_get_page };
+    httpd_uri_t state = { .uri = "/api/state", .method = HTTP_GET, .handler = on_get_state };
     httpd_uri_t save = { .uri = "/save", .method = HTTP_POST, .handler = on_save };
+    httpd_uri_t finish = { .uri = "/finish", .method = HTTP_POST, .handler = on_finish };
     httpd_register_uri_handler(server, &page);
+    httpd_register_uri_handler(server, &state);
     httpd_register_uri_handler(server, &save);
+    httpd_register_uri_handler(server, &finish);
 
     printf("Страница настройки: http://192.168.4.1\n");
 }

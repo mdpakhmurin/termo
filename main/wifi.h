@@ -27,6 +27,12 @@ bool wifi_load_credentials(char *ssid, size_t ssid_size, char *password, size_t 
 // Стереть сохранённую сеть
 void wifi_clear_credentials(void);
 
+// Отметить, чтобы следующая загрузка была в режиме настройки
+void wifi_request_setup_mode(void);
+
+// Посмотреть отметку, требуется ли загрузка в режиме настройки
+bool wifi_take_setup_request(void);
+
 // Сеть, найденная при сканировании
 typedef struct {
     char ssid[33];   // имя
