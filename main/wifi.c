@@ -6,6 +6,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 #include "wifi.h"
 #include "wifi_secrets.h"
 
@@ -13,13 +14,19 @@
 #define SETUP_AP_SSID "Termo-Setup"
 
 // Пауза перед повторным подключением
-#define RECONNECT_DELAY_MIN_MS 2000
-#define RECONNECT_DELAY_MAX_MS 5000
+#define RECONNECT_DELAY_MIN_MS  (1 * 1000)
+#define RECONNECT_DELAY_STEP_MS (1 * 1000)
+#define RECONNECT_DELAY_MAX_MS  (20 * 1000)
+
+// Время неудачного подключения, после которого плата будет перезагружена
+#define GIVE_UP_TIMEOUT_MS (20 * 60 * 1000)
 
 static volatile bool connected = false;
 
 static esp_timer_handle_t reconnect_timer = NULL;
 static int reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
+
+static esp_timer_handle_t give_up_timer = NULL;
 
 bool wifi_is_setup_mode(void)
 {
@@ -35,6 +42,19 @@ static void on_reconnect_timer(void *arg)
     esp_wifi_connect();
 }
 
+static void on_give_up_timer(void *arg)
+{
+    printf("Не можем подключиться %d с — перезагружаюсь\n", GIVE_UP_TIMEOUT_MS / 1000);
+    esp_restart();
+}
+
+static void start_give_up_timer(void)
+{
+    if (!esp_timer_is_active(give_up_timer)) {
+        esp_timer_start_once(give_up_timer, (uint64_t)GIVE_UP_TIMEOUT_MS * 1000);
+    }
+}
+
 static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START && !wifi_is_setup_mode()) {
@@ -44,10 +64,11 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED && !wifi_is_setup_mode()) {
         printf("Отключились от роутера, повтор через %d с\n", reconnect_delay_ms / 1000);
         connected = false;
+        start_give_up_timer();
 
         esp_timer_start_once(reconnect_timer, (uint64_t)reconnect_delay_ms * 1000);   // в микросекундах
 
-        reconnect_delay_ms *= 2;
+        reconnect_delay_ms += RECONNECT_DELAY_STEP_MS;
         if (reconnect_delay_ms > RECONNECT_DELAY_MAX_MS) {
             reconnect_delay_ms = RECONNECT_DELAY_MAX_MS;
         }
@@ -56,6 +77,7 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
         printf("Получили IP!\n");
         connected = true;
         reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
+        esp_timer_stop(give_up_timer);
     }
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
         printf("Входящее подключение %s\n", SETUP_AP_SSID);
@@ -134,6 +156,12 @@ void wifi_init(void)
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &reconnect_timer));
 
+    esp_timer_create_args_t give_up_args = {
+        .callback = on_give_up_timer,
+        .name = "wifi_give_up",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&give_up_args, &give_up_timer));
+
     printf("Wi-Fi иницализрован\n");
 }
 
@@ -168,6 +196,10 @@ void wifi_connect(const char *ssid, const char *password)
     wifi_config_t wifi_config = {0};
     strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
     strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+
+    wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
     ESP_ERROR_CHECK(esp_wifi_start());
