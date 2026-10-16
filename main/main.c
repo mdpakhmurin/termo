@@ -17,7 +17,6 @@
 static volatile float temperature = 0;
 
 static volatile bool need_blink = false;
-static volatile bool setup_mode = false;
 
 i2c_master_bus_handle_t setup_i2c(void)
 {
@@ -124,7 +123,7 @@ void status_led_task(void *arg)
     while (true) {
         bool online = wifi_is_connected() && mqtt_is_connected();
 
-        if (setup_mode) {
+        if (wifi_is_setup_mode()) {
             led_on = true;
             gpio_set_level(LED_GPIO, 1);
         } else if (!online) {
@@ -133,7 +132,7 @@ void status_led_task(void *arg)
         } else if (need_blink) {
             need_blink = false;
             gpio_set_level(LED_GPIO, 1);
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(300));
             gpio_set_level(LED_GPIO, 0);
             led_on = false;
         } else if (led_on) {
@@ -161,7 +160,6 @@ void app_main(void)
         mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
         xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
     } else {
-        setup_mode = true;
         wifi_start_access_point();
         setup_page_start();
     }

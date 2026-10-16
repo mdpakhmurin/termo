@@ -1,31 +1,61 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_timer.h"
 #include "wifi.h"
 #include "wifi_secrets.h"
 
 // имя раздаваемой сети
 #define SETUP_AP_SSID "Termo-Setup"
 
+// Пауза перед повторным подключением
+#define RECONNECT_DELAY_MIN_MS 2000
+#define RECONNECT_DELAY_MAX_MS 5000
+
 static volatile bool connected = false;
+
+static esp_timer_handle_t reconnect_timer = NULL;
+static int reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
+
+bool wifi_is_setup_mode(void)
+{
+    wifi_mode_t mode;
+    if (esp_wifi_get_mode(&mode) != ESP_OK) {
+        return false;
+    }
+    return mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA;
+}
+
+static void on_reconnect_timer(void *arg)
+{
+    esp_wifi_connect();
+}
 
 static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START && !wifi_is_setup_mode()) {
         printf("Wi-Fi запустился, подключаюсь...\n");
         esp_wifi_connect();
     }
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        printf("Отключились от роутера, подключаюсь снова...\n");
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED && !wifi_is_setup_mode()) {
+        printf("Отключились от роутера, повтор через %d с\n", reconnect_delay_ms / 1000);
         connected = false;
-        esp_wifi_connect();
+
+        esp_timer_start_once(reconnect_timer, (uint64_t)reconnect_delay_ms * 1000);   // в микросекундах
+
+        reconnect_delay_ms *= 2;
+        if (reconnect_delay_ms > RECONNECT_DELAY_MAX_MS) {
+            reconnect_delay_ms = RECONNECT_DELAY_MAX_MS;
+        }
     }
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         printf("Получили IP!\n");
         connected = true;
+        reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
     }
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
         printf("Входящее подключение %s\n", SETUP_AP_SSID);
@@ -98,6 +128,12 @@ void wifi_init(void)
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&config));
 
+    esp_timer_create_args_t timer_args = {
+        .callback = on_reconnect_timer,
+        .name = "wifi_reconnect",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &reconnect_timer));
+
     printf("Wi-Fi иницализрован\n");
 }
 
@@ -105,7 +141,9 @@ void wifi_start_access_point(void)
 {
     printf("Раздаю сеть %s\n", SETUP_AP_SSID);
     esp_netif_create_default_wifi_ap();
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    esp_netif_create_default_wifi_sta();
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
     wifi_config_t ap_config = {
         .ap = {
@@ -133,4 +171,48 @@ void wifi_connect(const char *ssid, const char *password)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
     ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+static int by_signal(const void *a, const void *b)
+{
+    return ((const wifi_ap_record_t *)b)->rssi - ((const wifi_ap_record_t *)a)->rssi;
+}
+
+static bool already_listed(const wifi_network_t *networks, int count, const char *ssid)
+{
+    for (int i = 0; i < count; i++) {
+        if (strcmp(networks[i].ssid, ssid) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int wifi_scan(wifi_network_t *networks, int max_networks)
+{
+    wifi_scan_config_t scan_config = {0};
+    if (esp_wifi_scan_start(&scan_config, true) != ESP_OK) {
+        printf("Не удалось просканировать сети\n");
+        return 0;
+    }
+
+    static wifi_ap_record_t records[20];
+    uint16_t count = 20;
+    esp_wifi_scan_get_ap_records(&count, records);
+    qsort(records, count, sizeof(records[0]), by_signal);
+
+    int found = 0;
+    for (int i = 0; i < count && found < max_networks; i++) {
+        const char *ssid = (const char *)records[i].ssid;
+        if (ssid[0] == '\0' || already_listed(networks, found, ssid)) {
+            continue;
+        }
+        strlcpy(networks[found].ssid, ssid, sizeof(networks[found].ssid));
+        networks[found].rssi = records[i].rssi;
+        networks[found].secured = records[i].authmode != WIFI_AUTH_OPEN;
+        found++;
+    }
+
+    printf("Нашли сетей: %d\n", found);
+    return found;
 }

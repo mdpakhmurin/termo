@@ -12,6 +12,9 @@ void wifi_connect(const char *ssid, const char *password);
 // Точка доступа - раздача сети 
 void wifi_start_access_point(void);
 
+// Плата в режиме настройки (раздаёт сеть)
+bool wifi_is_setup_mode(void);
+
 // Есть ли сейчас подключение к Wi-Fi
 bool wifi_is_connected(void);
 
@@ -23,3 +26,13 @@ bool wifi_load_credentials(char *ssid, size_t ssid_size, char *password, size_t 
 
 // Стереть сохранённую сеть
 void wifi_clear_credentials(void);
+
+// Сеть, найденная при сканировании
+typedef struct {
+    char ssid[33];   // имя
+    int rssi;        // сила сигнала в dBm: -40 отлично, -80 плохо
+    bool secured;    // есть ли пароль
+} wifi_network_t;
+
+// Поиск сетей wifi
+int wifi_scan(wifi_network_t *networks, int max_networks);

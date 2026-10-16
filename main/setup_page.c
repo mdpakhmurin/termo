@@ -1,38 +1,58 @@
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
 #include "esp_http_server.h"
 #include "setup_page.h"
 #include "wifi.h"
+#include "web_utils.h"
 
 // HTML-страница из файла setup_page.html
 extern const char PAGE[] asm("_binary_setup_page_html_start");
 
-static void url_decode(char *text)
+// Метка в HTML, на место которой вставляем найденные сети
+#define NETWORKS_MARKER "<!--NETWORKS-->"
+
+#define MAX_NETWORKS 15
+
+static const char *signal_bars(int rssi)
 {
-    char *out = text;
-    for (char *in = text; *in != '\0'; in++) {
-        if (*in == '+') {
-            *out++ = ' ';
-        } else if (*in == '%' && isxdigit((unsigned char)in[1]) && isxdigit((unsigned char)in[2])) {
-            char hex[3] = { in[1], in[2], '\0' };
-            *out++ = (char)strtol(hex, NULL, 16);
-            in += 2;
-        } else {
-            *out++ = *in;
-        }
+    if (rssi > -55) return "▂▄▆█";
+    if (rssi > -65) return "▂▄▆";
+    if (rssi > -75) return "▂▄";
+    return "▂";
+}
+
+static void send_network_options(httpd_req_t *req)
+{
+    static wifi_network_t networks[MAX_NETWORKS];
+    int count = wifi_scan(networks, MAX_NETWORKS);
+
+    for (int i = 0; i < count; i++) {
+        char safe_name[200];
+        html_escape(networks[i].ssid, safe_name, sizeof(safe_name));
+
+        char option[512];
+        snprintf(option, sizeof(option), "<option value=\"%s\">%s  %s%s</option>",
+                 safe_name, safe_name, signal_bars(networks[i].rssi), networks[i].secured ? " 🔒" : "");
+        httpd_resp_sendstr_chunk(req, option);
     }
-    *out = '\0';
 }
 
 static esp_err_t on_get_page(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_sendstr(req, PAGE);
+
+    const char *marker = strstr(PAGE, NETWORKS_MARKER);
+    if (marker == NULL) {
+        return httpd_resp_sendstr(req, PAGE);
+    }
+
+    httpd_resp_send_chunk(req, PAGE, marker - PAGE);                  // всё до метки
+    send_network_options(req);                                        // список сетей
+    httpd_resp_sendstr_chunk(req, marker + strlen(NETWORKS_MARKER));  // всё после метки
+    return httpd_resp_sendstr_chunk(req, NULL);                       // NULL — ответ закончен
 }
 
 static esp_err_t on_save(httpd_req_t *req)

@@ -1,31 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Termo</title>
+    <title>Termo — настройка</title>
     <style>
-        body {
-            font-family: sans-serif;
-            max-width: 320px;
-            margin: 40px auto;
-            padding: 0 16px;
+        :root {
+            --bg: #f2f4f7;
+            --card: #ffffff;
+            --text: #1d2433;
+            --muted: #6b7385;
+            --border: #d8dce4;
+            --accent: #ff6a3d;
         }
-        input, button {
-            width: 100%;
-            padding: 10px;
-            margin: 6px 0;
-            font-size: 16px;
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #14161b;
+                --card: #1e2128;
+                --text: #eceef2;
+                --muted: #9aa1b0;
+                --border: #343844;
+            }
+        }
+
+        * {
             box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 380px;
+            background: var(--card);
+            border-radius: 20px;
+            padding: 28px 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        .logo {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 22px;
+            margin: 0 0 6px;
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 0 0 8px;
+        }
+
+        .label-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin: 18px 0 6px;
+        }
+
+        label {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .refresh {
+            font-size: 13px;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 14px;
+            font-size: 16px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent);
+        }
+
+        .manual {
+            margin-top: 8px;
+        }
+
+        .password {
+            position: relative;
+        }
+
+        .password input {
+            padding-right: 48px;
+        }
+
+        .toggle {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 18px;
+            padding: 8px;
+            cursor: pointer;
+        }
+
+        .submit {
+            width: 100%;
+            margin-top: 24px;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            background: var(--accent);
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+        }
+
+        .submit:disabled {
+            opacity: 0.6;
         }
     </style>
 </head>
 <body>
-    <h2>Настройка Wi-Fi</h2>
-    <form method="POST" action="/save">
-        <input name="ssid" placeholder="Имя сети" required>
-        <input name="password" type="password" placeholder="Пароль">
-        <button>Сохранить</button>
-    </form>
+    <div class="card">
+        <div class="logo">🌡️</div>
+        <h1>Настройка термометра</h1>
+        <p class="hint">Выбери домашнюю сеть Wi-Fi и введи пароль. Термометр запомнит их и перезагрузится.</p>
+
+        <form method="POST" action="/save" onsubmit="onSaving()">
+            <div class="label-row">
+                <label for="ssid">Сеть</label>
+                <a class="refresh" href="/">Обновить список</a>
+            </div>
+            <select id="networks" onchange="pickNetwork()">
+                <option value="" disabled selected>Выбрать из найденных…</option>
+                <!--NETWORKS-->
+            </select>
+            <input class="manual" id="ssid" name="ssid" placeholder="Имя сети" required oninput="onSsidTyped()">
+
+            <div class="label-row">
+                <label for="password">Пароль</label>
+            </div>
+            <div class="password">
+                <input id="password" name="password" type="password" placeholder="Пароль от Wi-Fi">
+                <button type="button" class="toggle" onclick="togglePassword()" aria-label="Показать пароль">👁</button>
+            </div>
+
+            <button class="submit" id="submit">Сохранить</button>
+        </form>
+    </div>
+
+    <script>
+        function pickNetwork() {
+            document.getElementById("ssid").value = document.getElementById("networks").value;
+            document.getElementById("password").focus();
+        }
+
+        function onSsidTyped() {
+            var select = document.getElementById("networks");
+            if (select.value !== document.getElementById("ssid").value) {
+                select.selectedIndex = 0;
+            }
+        }
+
+        function togglePassword() {
+            var input = document.getElementById("password");
+            input.type = input.type === "password" ? "text" : "password";
+        }
+
+        function onSaving() {
+            var button = document.getElementById("submit");
+            button.disabled = true;
+            button.textContent = "Сохраняю…";
+        }
+    </script>
 </body>
 </html>
