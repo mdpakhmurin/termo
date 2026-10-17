@@ -23,6 +23,9 @@ void wifi_start_access_point(void);
 // Плата в режиме настройки (раздаёт сеть)
 bool wifi_is_setup_mode(void);
 
+// Выключить Wi-Fi
+void wifi_stop(void);
+
 // Есть ли сейчас подключение к Wi-Fi
 bool wifi_is_connected(void);
 

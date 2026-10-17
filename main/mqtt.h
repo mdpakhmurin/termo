@@ -25,5 +25,11 @@ void mqtt_start(const mqtt_settings_t *settings);
 // Есть ли связь с брокером
 bool mqtt_is_connected(void);
 
-// Отправить строку в топик. Возвращает false, если сейчас нет связи с брокером.
-bool mqtt_publish(const char *topic, const char *value);
+// Отправить строку в топик. Возвращает номер сообщения или -1, если нет связи с брокером
+int mqtt_publish(const char *topic, const char *value);
+
+// Подтвердил ли брокер получение сообщения
+bool mqtt_is_delivered(int message_id);
+
+// Отключиться от брокера (перед сном)
+void mqtt_stop(void);

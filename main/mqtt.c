@@ -6,8 +6,16 @@
 static esp_mqtt_client_handle_t client = NULL;
 static volatile bool connected = false;
 
+// Номер последнего сообщения, получение которого подтвердил брокер
+static volatile int delivered_message_id = -1;
+
 static void on_mqtt_event(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
+    if (event_id == MQTT_EVENT_PUBLISHED) {
+        esp_mqtt_event_handle_t event = event_data;
+        delivered_message_id = event->msg_id;
+        printf("MQTT: брокер подтвердил сообщение %d\n", event->msg_id);
+    }
     if (event_id == MQTT_EVENT_CONNECTED) {
         connected = true;
         printf("MQTT: подключились к брокеру\n");
@@ -83,13 +91,23 @@ bool mqtt_is_connected(void)
     return connected;
 }
 
-bool mqtt_publish(const char *topic, const char *value)
+int mqtt_publish(const char *topic, const char *value)
 {
     if (!connected) {
-        return false;
+        return -1;
     }
 
-    // QoS 1 — брокер подтвердит получение; retain 1 — брокер запомнит последнее значение
-    int message_id = esp_mqtt_client_publish(client, topic, value, 0, 1, 1);
-    return message_id >= 0;
+    return esp_mqtt_client_publish(client, topic, value, 0, 1, 1);
+}
+
+bool mqtt_is_delivered(int message_id)
+{
+    return message_id >= 0 && delivered_message_id == message_id;
+}
+
+void mqtt_stop(void)
+{
+    if (client != NULL) {
+        esp_mqtt_client_stop(client);
+    }
 }

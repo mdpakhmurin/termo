@@ -28,6 +28,8 @@ static int reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
 
 static esp_timer_handle_t give_up_timer = NULL;
 
+static volatile bool stopping = false;
+
 bool wifi_is_setup_mode(void)
 {
     wifi_mode_t mode;
@@ -61,7 +63,7 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
         printf("Wi-Fi запустился, подключаюсь...\n");
         esp_wifi_connect();
     }
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED && !wifi_is_setup_mode()) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED && !wifi_is_setup_mode() && !stopping) {
         printf("Отключились от роутера, повтор через %d с\n", reconnect_delay_ms / 1000);
         connected = false;
         start_give_up_timer();
@@ -90,6 +92,15 @@ static void on_wifi_event(void *arg, esp_event_base_t event_base, int32_t event_
 bool wifi_is_connected(void)
 {
     return connected;
+}
+
+void wifi_stop(void)
+{
+    stopping = true;
+    esp_timer_stop(reconnect_timer);
+    esp_timer_stop(give_up_timer);
+    esp_wifi_stop();
+    connected = false;
 }
 
 bool wifi_save_credentials(const wifi_credentials_t *credentials)
