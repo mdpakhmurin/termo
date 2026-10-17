@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "mqtt_client.h"
+#include "nvs.h"
 #include "mqtt.h"
 
 static esp_mqtt_client_handle_t client = NULL;
@@ -20,17 +21,61 @@ static void on_mqtt_event(void *arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
-void mqtt_start(const char *uri, const char *username, const char *password)
+void mqtt_start(const mqtt_settings_t *settings)
 {
     esp_mqtt_client_config_t config = {
-        .broker.address.uri = uri,
-        .credentials.username = username,
-        .credentials.authentication.password = password,
+        .broker.address.uri = settings->uri,
+        .credentials.username = settings->username,
+        .credentials.authentication.password = settings->password,
     };
 
     client = esp_mqtt_client_init(&config);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, on_mqtt_event, NULL);
     esp_mqtt_client_start(client);
+}
+
+bool mqtt_save_settings(const mqtt_settings_t *settings)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("mqtt", NVS_READWRITE, &nvs) != ESP_OK) {
+        return false;
+    }
+
+    esp_err_t err = nvs_set_str(nvs, "uri", settings->uri);
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs, "username", settings->username);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs, "password", settings->password);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    return err == ESP_OK;
+}
+
+bool mqtt_load_settings(mqtt_settings_t *settings)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("mqtt", NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+
+    size_t uri_size = sizeof(settings->uri);
+    size_t username_size = sizeof(settings->username);
+    size_t password_size = sizeof(settings->password);
+    esp_err_t err = nvs_get_str(nvs, "uri", settings->uri, &uri_size);
+    if (err == ESP_OK) {
+        err = nvs_get_str(nvs, "username", settings->username, &username_size);
+    }
+    if (err == ESP_OK) {
+        err = nvs_get_str(nvs, "password", settings->password, &password_size);
+    }
+    nvs_close(nvs);
+
+    return err == ESP_OK;
 }
 
 bool mqtt_is_connected(void)

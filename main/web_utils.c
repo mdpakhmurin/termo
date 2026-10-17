@@ -4,6 +4,42 @@
 #include <ctype.h>
 #include "web_utils.h"
 
+esp_err_t web_send(httpd_req_t *req, const char *content_type, const char *content)
+{
+    httpd_resp_set_type(req, content_type);
+    return httpd_resp_sendstr(req, content);
+}
+
+esp_err_t web_send_message(httpd_req_t *req, const char *text)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_sendstr_chunk(req, "<meta charset='utf-8'><h2>");
+    httpd_resp_sendstr_chunk(req, text);
+    httpd_resp_sendstr_chunk(req, "</h2>");
+    return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+esp_err_t web_redirect(httpd_req_t *req, const char *location)
+{
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", location);
+    return httpd_resp_send(req, NULL, 0);
+}
+
+bool web_read_form(httpd_req_t *req, char *body, size_t size)
+{
+    if (req->content_len >= size) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Too long");
+        return false;
+    }
+    int length = httpd_req_recv(req, body, req->content_len);
+    if (length <= 0) {
+        return false;
+    }
+    body[length] = '\0';
+    return true;
+}
+
 void url_decode(char *text)
 {
     char *out = text;

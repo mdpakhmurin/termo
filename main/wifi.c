@@ -92,16 +92,16 @@ bool wifi_is_connected(void)
     return connected;
 }
 
-bool wifi_save_credentials(const char *ssid, const char *password)
+bool wifi_save_credentials(const wifi_credentials_t *credentials)
 {
     nvs_handle_t nvs;
     if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK) {
         return false;
     }
 
-    esp_err_t err = nvs_set_str(nvs, "ssid", ssid);
+    esp_err_t err = nvs_set_str(nvs, "ssid", credentials->ssid);
     if (err == ESP_OK) {
-        err = nvs_set_str(nvs, "password", password);
+        err = nvs_set_str(nvs, "password", credentials->password);
     }
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
@@ -111,16 +111,18 @@ bool wifi_save_credentials(const char *ssid, const char *password)
     return err == ESP_OK;
 }
 
-bool wifi_load_credentials(char *ssid, size_t ssid_size, char *password, size_t password_size)
+bool wifi_load_credentials(wifi_credentials_t *credentials)
 {
     nvs_handle_t nvs;
     if (nvs_open("wifi", NVS_READONLY, &nvs) != ESP_OK) {
         return false;
     }
 
-    esp_err_t err = nvs_get_str(nvs, "ssid", ssid, &ssid_size);
+    size_t ssid_size = sizeof(credentials->ssid);
+    size_t password_size = sizeof(credentials->password);
+    esp_err_t err = nvs_get_str(nvs, "ssid", credentials->ssid, &ssid_size);
     if (err == ESP_OK) {
-        err = nvs_get_str(nvs, "password", password, &password_size);
+        err = nvs_get_str(nvs, "password", credentials->password, &password_size);
     }
     nvs_close(nvs);
 
@@ -216,15 +218,15 @@ void wifi_start_access_point(void)
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-void wifi_connect(const char *ssid, const char *password)
+void wifi_connect(const wifi_credentials_t *credentials)
 {
-    printf("Подключаюсь к сети %s\n", ssid);
+    printf("Подключаюсь к сети %s\n", credentials->ssid);
     esp_netif_create_default_wifi_sta();
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
     wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+    strlcpy((char *)wifi_config.sta.ssid, credentials->ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char *)wifi_config.sta.password, credentials->password, sizeof(wifi_config.sta.password));
 
     wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;

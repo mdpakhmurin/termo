@@ -3,178 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Termo — настройка</title>
-    <style>
-        :root {
-            --bg: #f2f4f7;
-            --card: #ffffff;
-            --text: #1d2433;
-            --muted: #6b7385;
-            --border: #d8dce4;
-            --accent: #ff6a3d;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #14161b;
-                --card: #1e2128;
-                --text: #eceef2;
-                --muted: #9aa1b0;
-                --border: #343844;
-            }
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 24px 16px;
-            background: var(--bg);
-            color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-
-        .card {
-            width: 100%;
-            max-width: 380px;
-            background: var(--card);
-            border-radius: 20px;
-            padding: 28px 24px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-        }
-
-        .logo {
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            background: var(--accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            margin-bottom: 16px;
-        }
-
-        h1 {
-            font-size: 22px;
-            margin: 0 0 6px;
-        }
-
-        .hint {
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.5;
-            margin: 0 0 8px;
-        }
-
-        .label-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin: 18px 0 6px;
-        }
-
-        label {
-            font-size: 13px;
-            color: var(--muted);
-        }
-
-        .refresh {
-            font-size: 13px;
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        input, select {
-            width: 100%;
-            padding: 12px 14px;
-            font-size: 16px;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            background: var(--bg);
-            color: var(--text);
-            outline: none;
-        }
-
-        input:focus, select:focus {
-            border-color: var(--accent);
-        }
-
-        .manual {
-            margin-top: 8px;
-        }
-
-        .password {
-            position: relative;
-        }
-
-        .password input {
-            padding-right: 48px;
-        }
-
-        .toggle {
-            position: absolute;
-            right: 6px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            font-size: 18px;
-            padding: 8px;
-            cursor: pointer;
-        }
-
-        .submit {
-            width: 100%;
-            margin-top: 24px;
-            padding: 14px;
-            font-size: 16px;
-            font-weight: 600;
-            color: #ffffff;
-            background: var(--accent);
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-        }
-
-        .submit:disabled {
-            opacity: 0.6;
-        }
-
-        .finish {
-            width: 100%;
-            margin-top: 12px;
-            padding: 14px;
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--accent);
-            background: none;
-            border: 1px solid var(--accent);
-            border-radius: 12px;
-            cursor: pointer;
-        }
-
-        .finish:disabled {
-            opacity: 0.4;
-            cursor: default;
-        }
-
-        .saved {
-            margin: 16px 0 0;
-            padding: 10px 14px;
-            font-size: 14px;
-            line-height: 1.5;
-            color: #1b7a3d;
-            background: #e3f6ea;
-            border-radius: 12px;
-        }
-    </style>
+    <title>Termo - настройка</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="card">
@@ -187,10 +17,10 @@
             Пароль сохранён
         </p>
 
-        <form method="POST" action="/save" onsubmit="onSaving()">
+        <form method="POST" action="/save_wifi" onsubmit="onSaving()">
             <div class="label-row">
                 <label for="ssid">Сеть</label>
-                <a class="refresh" href="#" onclick="loadState(); return false;">Обновить список</a>
+                <a class="refresh" href="#" onclick="loadWifi(); return false;">Обновить список</a>
             </div>
             <select id="networks" onchange="pickNetwork()">
                 <option value="" disabled selected>Ищу сети…</option>
@@ -208,12 +38,24 @@
             <button class="submit" id="submit">Сохранить</button>
         </form>
 
+        <a class="nav" href="/mqtt">
+            <span>MQTT</span>
+            <span class="nav-status"><span id="mqtt-status">…</span> →</span>
+        </a>
+
         <form method="POST" action="/finish">
             <button class="finish" id="finish" disabled>Завершить настройку</button>
         </form>
     </div>
 
     <script>
+        var wifiSaved = false;
+        var mqttSaved = false;
+
+        function updateFinish() {
+            document.getElementById("finish").disabled = !(wifiSaved && mqttSaved);
+        }
+
         function signalBars(rssi) {
             if (rssi > -55) return "▂▄▆█";
             if (rssi > -65) return "▂▄▆";
@@ -221,25 +63,26 @@
             return "▂";
         }
 
-        function loadState() {
+        function loadWifi() {
             var select = document.getElementById("networks");
-            select.length = 1;
+            select.length = 1; 
             select.selectedIndex = 0;
             select.options[0].text = "Ищу сети…";
 
-            fetch("/api/state")
+            fetch("/api/wifi")
                 .then(function (response) { return response.json(); })
-                .then(showState)
+                .then(showWifi)
                 .catch(function () {
                     select.options[0].text = "Не удалось получить список";
                 });
         }
 
-        function showState(state) {
+        function showWifi(state) {
             if (state.saved_ssid) {
                 document.getElementById("saved-ssid").textContent = state.saved_ssid;
                 document.getElementById("saved").hidden = false;
-                document.getElementById("finish").disabled = false;
+                wifiSaved = true;
+                updateFinish();
 
                 var ssidInput = document.getElementById("ssid");
                 if (!ssidInput.value) {
@@ -247,6 +90,7 @@
                 }
             }
 
+            // Найденные сети. new Option сам защищает от «вредных» имён — экранировать не нужно
             var select = document.getElementById("networks");
             state.networks.forEach(function (network) {
                 var label = network.ssid + "  " + signalBars(network.rssi) + (network.secured ? " 🔒" : "");
@@ -255,7 +99,18 @@
             select.options[0].text = state.networks.length > 0 ? "Выбрать из найденных…" : "Сети не найдены";
         }
 
-        loadState();
+        function loadMqtt() {
+            fetch("/api/mqtt")
+                .then(function (response) { return response.json(); })
+                .then(function (settings) {
+                    mqttSaved = settings.uri !== "";
+                    document.getElementById("mqtt-status").textContent = mqttSaved ? "сохранён" : "не настроен";
+                    updateFinish();
+                });
+        }
+
+        loadWifi();
+        loadMqtt();
 
         function pickNetwork() {
             document.getElementById("ssid").value = document.getElementById("networks").value;
@@ -277,7 +132,7 @@
         function onSaving() {
             var button = document.getElementById("submit");
             button.disabled = true;
-            button.textContent = "Сохраняю…";
+            button.textContent = "Сохранение...";
         }
     </script>
 </body>

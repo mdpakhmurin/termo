@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Termo - MQTT</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="card">
+        <a class="back" href="/">← Wi-Fi</a>
+        <div class="logo">📡</div>
+        <h1>Настройка MQTT</h1>
+        <p class="hint">Адрес, логин и пароль WQTT.</p>
+
+        <p class="saved" id="saved" hidden>
+            ✓ Сохранено<br>
+            Адрес: <b id="saved-uri"></b><br>
+            Логин: <b id="saved-username"></b><br>
+            Пароль сохранён
+        </p>
+
+        <form method="POST" action="/save_mqtt" onsubmit="onSaving()">
+            <div class="label-row">
+                <label for="uri">Адрес брокера</label>
+            </div>
+            <input id="uri" name="uri" placeholder="mqtt://сервер:порт" required maxlength="127">
+
+            <div class="label-row">
+                <label for="username">Логин</label>
+            </div>
+            <input id="username" name="username" placeholder="Логин" maxlength="63" autocapitalize="off">
+
+            <div class="label-row">
+                <label for="password">Пароль</label>
+            </div>
+            <div class="password">
+                <input id="password" name="password" type="password" placeholder="Пароль от брокера" required maxlength="63">
+                <button type="button" class="toggle" onclick="togglePassword()" aria-label="Показать пароль">👁</button>
+            </div>
+
+            <button class="submit" id="submit">Сохранить</button>
+        </form>
+    </div>
+
+    <script>
+        fetch("/api/mqtt")
+            .then(function (response) { return response.json(); })
+            .then(function (settings) {
+                if (!settings.uri) {
+                    return;
+                }
+                document.getElementById("saved-uri").textContent = settings.uri;
+                document.getElementById("saved-username").textContent = settings.username || "—";
+                document.getElementById("saved").hidden = false;
+
+                document.getElementById("uri").value = settings.uri;
+                document.getElementById("username").value = settings.username;
+            });
+
+        function togglePassword() {
+            var input = document.getElementById("password");
+            input.type = input.type === "password" ? "text" : "password";
+        }
+
+        function onSaving() {
+            var button = document.getElementById("submit");
+            button.disabled = true;
+            button.textContent = "Сохранение";
+        }
+    </script>
+</body>
+</html>

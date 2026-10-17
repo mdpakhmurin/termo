@@ -7,7 +7,6 @@
 #include "esp_system.h"
 #include "wifi.h"
 #include "mqtt.h"
-#include "mqtt_secrets.h"
 #include "bme280.h"
 #include "setup_page.h"
 
@@ -155,11 +154,15 @@ void app_main(void)
 
     bool setup_requested = wifi_take_setup_request();
 
-    char ssid[33];
-    char password[64];
-    if (!setup_requested && wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
-        wifi_connect(ssid, password);
-        mqtt_start(MQTT_URI, MQTT_USERNAME, MQTT_PASSWORD);
+    wifi_credentials_t wifi;
+    bool wifi_saved = wifi_load_credentials(&wifi);
+
+    mqtt_settings_t mqtt;
+    bool mqtt_saved = mqtt_load_settings(&mqtt);
+
+    if (!setup_requested && wifi_saved && mqtt_saved) {
+        wifi_connect(&wifi);
+        mqtt_start(&mqtt);
         xTaskCreate(send_temperature_task, "send_temp", 4096, NULL, 5, NULL);
     } else {
         wifi_start_access_point();

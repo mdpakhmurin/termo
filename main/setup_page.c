@@ -6,30 +6,42 @@
 #include "esp_http_server.h"
 #include "setup_page.h"
 #include "wifi.h"
+#include "mqtt.h"
 #include "web_utils.h"
 
-// HTML-страница из файла setup_page.html
-extern const char PAGE[] asm("_binary_setup_page_html_start");
+extern const char SETUP_PAGE[] asm("_binary_setup_page_html_start");
+extern const char MQTT_PAGE[]  asm("_binary_mqtt_page_html_start");
+extern const char STYLE_CSS[]  asm("_binary_style_css_start");
 
 #define MAX_NETWORKS 15
 
-static esp_err_t on_get_page(httpd_req_t *req)
+static esp_err_t on_get_setup_page(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_sendstr(req, PAGE);
+    return web_send(req, "text/html; charset=utf-8", SETUP_PAGE);
 }
 
-static esp_err_t on_get_state(httpd_req_t *req)
+static esp_err_t on_get_mqtt_page(httpd_req_t *req)
+{
+    return web_send(req, "text/html; charset=utf-8", MQTT_PAGE);
+}
+
+static esp_err_t on_get_style(httpd_req_t *req)
+{
+    return web_send(req, "text/css; charset=utf-8", STYLE_CSS);
+}
+
+static esp_err_t on_get_wifi(httpd_req_t *req)
 {
     static char json[4096];
     static wifi_network_t networks[MAX_NETWORKS];
 
-    char saved_ssid[33] = "";
-    char saved_password[64];
-    wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_password, sizeof(saved_password));
+    wifi_credentials_t saved;
+    if (!wifi_load_credentials(&saved)) {
+        saved.ssid[0] = '\0';
+    }
 
     char safe_ssid[200];
-    json_escape(saved_ssid, safe_ssid, sizeof(safe_ssid));
+    json_escape(saved.ssid, safe_ssid, sizeof(safe_ssid));
 
     int pos = snprintf(json, sizeof(json), "{\"saved_ssid\":\"%s\",\"networks\":[", safe_ssid);
 
@@ -50,21 +62,15 @@ static esp_err_t on_get_state(httpd_req_t *req)
 
     snprintf(json + pos, sizeof(json) - pos, "]}");
 
-    httpd_resp_set_type(req, "application/json");
-    return httpd_resp_sendstr(req, json);
+    return web_send(req, "application/json", json);
 }
 
-static esp_err_t on_save(httpd_req_t *req)
+static esp_err_t on_save_wifi(httpd_req_t *req)
 {
     char body[400];
-    if (req->content_len >= sizeof(body)) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Too long");
-    }
-    int length = httpd_req_recv(req, body, req->content_len);
-    if (length <= 0) {
+    if (!web_read_form(req, body, sizeof(body))) {
         return ESP_FAIL;
     }
-    body[length] = '\0';
 
     char ssid[100] = "";
     char password[200] = "";
@@ -75,41 +81,106 @@ static esp_err_t on_save(httpd_req_t *req)
 
     printf("Получили сеть: %s (пароль: %d символов)\n", ssid, (int)strlen(password));
 
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-
     size_t ssid_length = strlen(ssid);
     size_t password_length = strlen(password);
-    if (ssid_length == 0 || ssid_length > 32) {
-        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Имя сети: от 1 до 32 символов</h2>");
+    if (ssid_length == 0 || ssid_length >= WIFI_SSID_SIZE) {
+        return web_send_message(req, "Имя сети: от 1 до 32 символов");
     }
-    if (password_length < 8 || password_length > 63) {
-        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Пароль: от 8 до 63 символов</h2>");
+    if (password_length < 8 || password_length >= WIFI_PASSWORD_SIZE) {
+        return web_send_message(req, "Пароль: от 8 до 63 символов");
     }
 
-    if (!wifi_save_credentials(ssid, password)) {
-        printf("Не удалось сохранить\n");
-        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Ошибка сохранения</h2>");
+    wifi_credentials_t credentials;
+    strlcpy(credentials.ssid, ssid, sizeof(credentials.ssid));
+    strlcpy(credentials.password, password, sizeof(credentials.password));
+
+    if (!wifi_save_credentials(&credentials)) {
+        printf("Не удалось сохранить сеть\n");
+        return web_send_message(req, "Ошибка сохранения");
     }
 
     printf("Сеть сохранена\n");
+    return web_redirect(req, "/");
+}
 
-    httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "/");
-    return httpd_resp_send(req, NULL, 0);
+static esp_err_t on_get_mqtt(httpd_req_t *req)
+{
+    mqtt_settings_t saved;
+    if (!mqtt_load_settings(&saved)) {
+        saved.uri[0] = '\0';
+        saved.username[0] = '\0';
+    }
+
+    static char safe_uri[MQTT_URI_SIZE * 6];
+    static char safe_username[MQTT_USERNAME_SIZE * 6];
+    static char json[MQTT_URI_SIZE * 6 + MQTT_USERNAME_SIZE * 6 + 64];
+    json_escape(saved.uri, safe_uri, sizeof(safe_uri));
+    json_escape(saved.username, safe_username, sizeof(safe_username));
+    snprintf(json, sizeof(json), "{\"uri\":\"%s\",\"username\":\"%s\"}", safe_uri, safe_username);
+
+    return web_send(req, "application/json", json);
+}
+
+static esp_err_t on_save_mqtt(httpd_req_t *req)
+{
+    static char body[1000];
+    if (!web_read_form(req, body, sizeof(body))) {
+        return ESP_FAIL;
+    }
+
+    char uri[400] = "";
+    char username[200] = "";
+    char password[200] = "";
+    httpd_query_key_value(body, "uri", uri, sizeof(uri));
+    httpd_query_key_value(body, "username", username, sizeof(username));
+    httpd_query_key_value(body, "password", password, sizeof(password));
+    url_decode(uri);
+    url_decode(username);
+    url_decode(password);
+
+    printf("Получили брокер: %s, логин %s (пароль: %d символов)\n", uri, username, (int)strlen(password));
+
+    size_t uri_length = strlen(uri);
+    if (uri_length >= MQTT_URI_SIZE ||
+        (strncmp(uri, "mqtt://", 7) != 0 && strncmp(uri, "mqtts://", 8) != 0)) {
+        return web_send_message(req, "Адрес должен начинаться с mqtt:// или mqtts:// (до 127 символов)");
+    }
+    if (strlen(username) >= MQTT_USERNAME_SIZE) {
+        return web_send_message(req, "Логин: до 63 символов");
+    }
+    size_t password_length = strlen(password);
+    if (password_length == 0 || password_length >= MQTT_PASSWORD_SIZE) {
+        return web_send_message(req, "Пароль: от 1 до 63 символов");
+    }
+
+    mqtt_settings_t settings;
+    strlcpy(settings.uri, uri, sizeof(settings.uri));
+    strlcpy(settings.username, username, sizeof(settings.username));
+    strlcpy(settings.password, password, sizeof(settings.password));
+
+    if (!mqtt_save_settings(&settings)) {
+        printf("Не удалось сохранить брокер\n");
+        return web_send_message(req, "Ошибка сохранения");
+    }
+
+    printf("Брокер сохранён\n");
+    return web_redirect(req, "/mqtt");
 }
 
 static esp_err_t on_finish(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    wifi_credentials_t wifi;
+    if (!wifi_load_credentials(&wifi)) {
+        return web_send_message(req, "Сначала сохраните сеть Wi-Fi");
+    }
 
-    char ssid[33];
-    char password[64];
-    if (!wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
-        return httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Сначала сохраните сеть</h2>");
+    mqtt_settings_t mqtt;
+    if (!mqtt_load_settings(&mqtt)) {
+        return web_send_message(req, "Сначала сохраните настройки MQTT");
     }
 
     printf("Настройка завершена, перезагружаюсь\n");
-    httpd_resp_sendstr(req, "<meta charset='utf-8'><h2>Настройка завершена. Устройство будет перезагружено</h2>");
+    web_send_message(req, "Настройка завершена. Устройство будет перезагружено");
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
@@ -119,17 +190,25 @@ static esp_err_t on_finish(httpd_req_t *req)
 void setup_page_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 12;
+    config.stack_size = 6144;
     httpd_handle_t server = NULL;
     ESP_ERROR_CHECK(httpd_start(&server, &config));
 
-    httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = on_get_page };
-    httpd_uri_t state = { .uri = "/api/state", .method = HTTP_GET, .handler = on_get_state };
-    httpd_uri_t save = { .uri = "/save", .method = HTTP_POST, .handler = on_save };
-    httpd_uri_t finish = { .uri = "/finish", .method = HTTP_POST, .handler = on_finish };
-    httpd_register_uri_handler(server, &page);
-    httpd_register_uri_handler(server, &state);
-    httpd_register_uri_handler(server, &save);
-    httpd_register_uri_handler(server, &finish);
+    httpd_uri_t handlers[] = {
+        { .uri = "/",          .method = HTTP_GET,  .handler = on_get_setup_page },
+        { .uri = "/mqtt",      .method = HTTP_GET,  .handler = on_get_mqtt_page },
+        { .uri = "/style.css", .method = HTTP_GET,  .handler = on_get_style },
+        { .uri = "/api/wifi",  .method = HTTP_GET,  .handler = on_get_wifi },
+        { .uri = "/api/mqtt",  .method = HTTP_GET,  .handler = on_get_mqtt },
+        { .uri = "/save_wifi", .method = HTTP_POST, .handler = on_save_wifi },
+        { .uri = "/save_mqtt", .method = HTTP_POST, .handler = on_save_mqtt },
+        { .uri = "/finish",    .method = HTTP_POST, .handler = on_finish },
+    };
+    int handler_count = sizeof(handlers) / sizeof(handlers[0]);
+    for (int i = 0; i < handler_count; i++) {
+        httpd_register_uri_handler(server, &handlers[i]);
+    }
 
     printf("Страница настройки: http://192.168.4.1\n");
 }
