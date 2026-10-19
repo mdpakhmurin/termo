@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -13,6 +14,8 @@
 #include "bme280.h"
 #include "setup_page.h"
 
+// ---------- Настройки ----------
+
 #define BOOT_BUTTON_GPIO 0
 #define LED_GPIO         2
 
@@ -25,6 +28,13 @@
 // Сколько держать BOOT, чтобы перейти в режим настройки
 #define LONG_PRESS_MS 3000
 
+// Давление в мм рт. ст. 1 гПа = 0,750 мм рт. ст.
+#define HPA_TO_MMHG 0.750062f
+
+// Количество сообщений брокеру: температура, давление, влажность, «ощущается как»
+#define MAX_MESSAGES 4
+
+// ---------- Типы ----------
 
 typedef enum {
     LED_OFF,       // не горит
@@ -32,6 +42,13 @@ typedef enum {
     LED_BLINK,     // мигает
     LED_FLICKER,   // мигает быстро
 } led_mode_t;
+
+typedef struct {
+    const char *topic;
+    char value[16];
+} message_t;
+
+// ---------- Общие переменные ----------
 
 static volatile led_mode_t led_mode = LED_BLINK;
 
@@ -62,16 +79,37 @@ void setup_bme280(void)
     }
 }
 
-int publish_temperature(float temperature)
+float feels_like(float temperature, float humidity)
 {
-    char text[16];
-    snprintf(text, sizeof(text), "%.1f", temperature);
+    float vapor = humidity / 100.0f * 6.105f * expf(17.27f * temperature / (237.7f + temperature));
+    return temperature + 0.33f * vapor - 4.0f;
+}
 
-    int message_id = mqtt_publish("termo/temperature", text);
-    if (message_id >= 0) {
-        printf("Температура отправлена: %s\n", text);
+// Разложить замер по сообщениям
+int make_messages(const bme280_data_t *data, message_t *messages)
+{
+    int count = 0;
+
+    messages[count].topic = "termo/temperature";
+    snprintf(messages[count].value, sizeof(messages[count].value), "%.1f", data->temperature);
+    count++;
+
+    messages[count].topic = "termo/pressure";
+    snprintf(messages[count].value, sizeof(messages[count].value), "%.0f", data->pressure * HPA_TO_MMHG);
+    count++;
+
+    if (!isnan(data->humidity)) {
+        messages[count].topic = "termo/humidity";
+        snprintf(messages[count].value, sizeof(messages[count].value), "%.0f", data->humidity);
+        count++;
+
+        messages[count].topic = "termo/feels_like";
+        snprintf(messages[count].value, sizeof(messages[count].value), "%.1f",
+                 feels_like(data->temperature, data->humidity));
+        count++;
     }
-    return message_id;
+
+    return count;
 }
 
 /* Светодиод:
@@ -192,12 +230,17 @@ void go_to_sleep(void)
 
 void measure_send_and_sleep(const wifi_credentials_t *wifi, const mqtt_settings_t *mqtt)
 {
-    float temperature;
-    bool measured = bme280_read_temperature(&temperature);
+    bme280_data_t data;
+    bool measured = bme280_read(&data);
+
+    message_t messages[MAX_MESSAGES];
+    int total = 0;
     if (measured) {
-        printf("Температура: %.2f °C\n", temperature);
+        printf("Температура %.2f °C, давление %.1f гПа, влажность %.1f %%\n",
+               data.temperature, data.pressure, data.humidity);
+        total = make_messages(&data, messages);
     } else {
-        printf("Не удалось прочитать температуру\n");
+        printf("Не удалось произвести измерения\n");
     }
 
     led_mode = LED_BLINK;
@@ -205,6 +248,7 @@ void measure_send_and_sleep(const wifi_credentials_t *wifi, const mqtt_settings_
     mqtt_start(mqtt);
 
     bool delivered = false;
+    int current = 0;    
     int message_id = -1;
     int64_t deadline = esp_timer_get_time() + (int64_t)SEND_TIMEOUT_MS * 1000;
 
@@ -212,22 +256,36 @@ void measure_send_and_sleep(const wifi_credentials_t *wifi, const mqtt_settings_
         check_setup_button();
 
         if (message_id < 0 && mqtt_is_connected()) {
-            message_id = publish_temperature(temperature);
-        }
-        if (mqtt_is_delivered(message_id)) {
-            delivered = true;
-            break;
+            message_id = mqtt_publish(messages[current].topic, messages[current].value);
+            if (message_id >= 0) {
+                printf("Отправили %s = %s\n", messages[current].topic, messages[current].value);
+            }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (mqtt_is_delivered(message_id)) {
+            current++;
+            message_id = -1;
+            if (current == total) {
+                delivered = true;
+                break;
+            }
+            continue;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 
     if (delivered) {
-        printf("Брокер получил температуру\n");
+        printf("Брокер получил все данные\n");
         led_mode = LED_ON;
         vTaskDelay(pdMS_TO_TICKS(1000));
     } else {
-        printf("Отправить не удалось, попробую после сна\n");
+        if (measured) {
+            printf("Не дошло %s (и всё после него) \n",
+                   messages[current].topic);
+        } else {
+            printf("Датчик не ответил. Замер пропущен\n");
+        }
         led_mode = LED_FLICKER;
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
