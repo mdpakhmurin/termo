@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "driver/rtc_io.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
 #include "esp_sleep.h"
@@ -16,8 +15,17 @@
 
 // ---------- Настройки ----------
 
-#define BOOT_BUTTON_GPIO 0
-#define LED_GPIO         2
+#define BUTTON_GPIO 9
+
+#define LED_GPIO     15
+#define LED_ON_LEVEL 0
+
+// Датчик BME280: SDA → D4, SCL → D5
+#define I2C_SDA_GPIO 22
+#define I2C_SCL_GPIO 23
+
+#define ANTENNA_SWITCH_GPIO     3  // питание переключателя антенн: 0 — включён
+#define ANTENNA_SELECT_GPIO     14 // выбор антенны: 0 — встроенная, 1 — внешняя
 
 // Сон между замерами
 #define SLEEP_SECONDS (1 * 60)
@@ -25,7 +33,7 @@
 // Сколько пытаемся отправить после пробуждения, прежде чем сдаться и уснуть
 #define SEND_TIMEOUT_MS (60 * 1000)
 
-// Сколько держать BOOT, чтобы перейти в режим настройки
+// Сколько держать кнопку, чтобы перейти в режим настройки
 #define LONG_PRESS_MS 3000
 
 // Давление в мм рт. ст. 1 гПа = 0,750 мм рт. ст.
@@ -56,8 +64,8 @@ i2c_master_bus_handle_t setup_i2c(void)
 {
     // Настройки шины I2C
     i2c_master_bus_config_t bus_config = {
-        .sda_io_num = 21,                       // провод данных
-        .scl_io_num = 22,                       // провод-метроном
+        .sda_io_num = I2C_SDA_GPIO,             // провод данных
+        .scl_io_num = I2C_SCL_GPIO,             // провод-метроном
         .i2c_port = -1,                         // какой I2C-блок взять: -1 = любой свободный
         .clk_source = I2C_CLK_SRC_DEFAULT,      // от каких внутренних часов тикать: стандартные
         .glitch_ignore_cnt = 7,                 // фильтр помех: стандартное значение
@@ -133,34 +141,35 @@ void status_led_task(void *arg)
             case LED_BLINK:   led_on = (step / 5) % 2 == 0;  break;
             case LED_FLICKER: led_on = step % 2 == 0;        break;
         }
-        gpio_set_level(LED_GPIO, led_on);
+        gpio_set_level(LED_GPIO, led_on ? LED_ON_LEVEL : !LED_ON_LEVEL);
 
         step++;
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
-// Кнопка BOOT, пока плата не спит
-void setup_boot_button(void)
+// Настроить антенну
+void setup_antenna(void)
 {
-    rtc_gpio_deinit(BOOT_BUTTON_GPIO);
-    gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY);
+    gpio_set_direction(ANTENNA_SWITCH_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(ANTENNA_SWITCH_GPIO, 0);   // 0 — включить переключатель
+
+    gpio_set_direction(ANTENNA_SELECT_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(ANTENNA_SELECT_GPIO, 0);   // 0 — встроенная антенна (1 — внешняя)
 }
 
-// Кнопка BOOT на время сна
-void setup_boot_button_for_sleep(void)
+// Кнопка BOOT
+void setup_button(void)
 {
-    esp_sleep_enable_ext0_wakeup(BOOT_BUTTON_GPIO, 0);
-    rtc_gpio_pullup_en(BOOT_BUTTON_GPIO);
-    rtc_gpio_pulldown_dis(BOOT_BUTTON_GPIO);
+    gpio_set_direction(BUTTON_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_GPIO, GPIO_PULLUP_ONLY);
 }
 
 void check_setup_button(void)
 {
     static int64_t pressed_since = 0;
 
-    if (gpio_get_level(BOOT_BUTTON_GPIO) != 0) {
+    if (gpio_get_level(BUTTON_GPIO) != 0) {
         pressed_since = 0;
         return;
     }
@@ -199,11 +208,8 @@ void print_wakeup_cause(void)
         case ESP_SLEEP_WAKEUP_TIMER:
             printf("Проснулись по таймеру\n");
             break;
-        case ESP_SLEEP_WAKEUP_EXT0:
-            printf("Проснулись от кнопки BOOT\n");
-            break;
         default:
-            printf("Обычное включение (не из сна)\n");
+            printf("Обычное включение или RESET (не из сна)\n");
             break;
     }
 }
@@ -211,18 +217,12 @@ void print_wakeup_cause(void)
 void go_to_sleep(void)
 {
     led_mode = LED_OFF;
-    gpio_set_level(LED_GPIO, 0);
+    gpio_set_level(LED_GPIO, !LED_ON_LEVEL);
 
     mqtt_stop();
     wifi_stop();
 
-    while (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_SECONDS * 1000 * 1000);
-
-    setup_boot_button_for_sleep();
 
     printf("Сплю %d с\n", SLEEP_SECONDS);
     esp_deep_sleep_start(); 
@@ -297,9 +297,10 @@ void app_main(void)
 {
     printf("Hello world!\n");
 
+    setup_antenna();
     print_wakeup_cause();
 
-    setup_boot_button();
+    setup_button();
 
     setup_bme280();
 

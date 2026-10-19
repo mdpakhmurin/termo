@@ -112,7 +112,7 @@ static bool read_calibration(void)
 bool bme280_init(i2c_master_bus_handle_t bus)
 {
     if (!add_device(bus, ADDRESS)) {
-        printf("Датчик не отвечает. Проверить: VIN->3V3, GND->GND, SDA->D21, SCL->D22\n");
+        printf("Датчик не отвечает. Проверить: VIN->3V3, GND->GND, SDA->D4, SCL->D5\n");
         return false;
     }
 
