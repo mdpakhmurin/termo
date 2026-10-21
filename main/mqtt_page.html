@@ -8,7 +8,11 @@
 </head>
 <body>
     <div class="card">
-        <a class="back" href="/">← Wi-Fi</a>
+        <nav class="tabs">
+            <a class="tab" href="/">Wi-Fi</a>
+            <a class="tab active" href="/mqtt">MQTT</a>
+        </nav>
+
         <div class="logo">📡</div>
         <h1>Настройка MQTT</h1>
         <p class="hint">Адрес, логин и пароль WQTT.</p>
@@ -20,11 +24,12 @@
             Пароль сохранён
         </p>
 
-        <form method="POST" action="/save_mqtt" onsubmit="onSaving()">
+        <form id="form" method="POST" action="/save_mqtt">
             <div class="label-row">
                 <label for="uri">Адрес брокера</label>
             </div>
             <input id="uri" name="uri" placeholder="mqtt://сервер:порт" required maxlength="127">
+            <p class="hint field-hint">mqtt:// — без шифрования, mqtts:// — с шифрованием (TLS, свой порт)</p>
 
             <div class="label-row">
                 <label for="username">Логин</label>
@@ -40,33 +45,99 @@
             </div>
 
             <button class="submit" id="submit">Сохранить</button>
+            <p class="error" id="error" hidden></p>
         </form>
+
+        <form method="POST" action="/finish">
+            <button class="finish" id="finish" disabled>Завершить настройку</button>
+        </form>
+        <p class="hint finish-hint" id="finish-hint"></p>
     </div>
 
     <script>
+        var wifiSaved = false;
+        var mqttSaved = false;
+
+        function updateFinish() {
+            var missing = [];
+            if (!wifiSaved) missing.push("Wi-Fi");
+            if (!mqttSaved) missing.push("MQTT");
+
+            document.getElementById("finish").disabled = missing.length > 0;
+
+            var hint = document.getElementById("finish-hint");
+            hint.hidden = missing.length === 0;
+            hint.textContent = "Чтобы завершить, сохраните " + missing.join(" и ");
+        }
+
+        function loadStatus() {
+            fetch("/api/status")
+                .then(function (response) { return response.json(); })
+                .then(function (status) {
+                    wifiSaved = status.wifi_saved;
+                    mqttSaved = status.mqtt_saved;
+                    updateFinish();
+                });
+        }
+
+        updateFinish();
+        loadStatus();
+
+        function showSavedMqtt(uri, username) {
+            document.getElementById("saved-uri").textContent = uri;
+            document.getElementById("saved-username").textContent = username || "—";
+            document.getElementById("saved").hidden = false;
+            mqttSaved = true;
+            updateFinish();
+        }
+
         fetch("/api/mqtt")
             .then(function (response) { return response.json(); })
             .then(function (settings) {
                 if (!settings.uri) {
                     return;
                 }
-                document.getElementById("saved-uri").textContent = settings.uri;
-                document.getElementById("saved-username").textContent = settings.username || "—";
-                document.getElementById("saved").hidden = false;
+                showSavedMqtt(settings.uri, settings.username);
 
                 document.getElementById("uri").value = settings.uri;
                 document.getElementById("username").value = settings.username;
             });
 
+        document.getElementById("form").addEventListener("submit", function (event) {
+            event.preventDefault();
+
+            var form = event.target;
+            var data = new URLSearchParams(new FormData(form));
+            var fields = form.querySelectorAll("input, button");
+            var button = document.getElementById("submit");
+            var error = document.getElementById("error");
+
+            fields.forEach(function (field) { field.disabled = true; });
+            button.textContent = "Сохранение...";
+            error.hidden = true;
+
+            fetch(form.action, { method: "POST", body: data })
+                .then(function (response) {
+                    return response.json().then(function (result) {
+                        if (!response.ok) {
+                            throw new Error(result.error);
+                        }
+                        showSavedMqtt(document.getElementById("uri").value, document.getElementById("username").value);
+                    });
+                })
+                .catch(function (e) {
+                    error.textContent = "Не удалось сохранить: " + (e instanceof SyntaxError ? "плата не ответила" : e.message);
+                    error.hidden = false;
+                })
+                .finally(function () {
+                    fields.forEach(function (field) { field.disabled = false; });
+                    button.textContent = "Сохранить";
+                });
+        });
+
         function togglePassword() {
             var input = document.getElementById("password");
             input.type = input.type === "password" ? "text" : "password";
-        }
-
-        function onSaving() {
-            var button = document.getElementById("submit");
-            button.disabled = true;
-            button.textContent = "Сохранение";
         }
     </script>
 </body>

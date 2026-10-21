@@ -8,6 +8,11 @@
 </head>
 <body>
     <div class="card">
+        <nav class="tabs">
+            <a class="tab active" href="/">Wi-Fi</a>
+            <a class="tab" href="/mqtt">MQTT</a>
+        </nav>
+
         <div class="logo">🌡️</div>
         <h1>Настройка термометра</h1>
         <p class="hint">Выбери домашнюю сеть Wi-Fi.</p>
@@ -17,13 +22,13 @@
             Пароль сохранён
         </p>
 
-        <form method="POST" action="/save_wifi" onsubmit="onSaving()">
+        <form id="form" method="POST" action="/save_wifi">
             <div class="label-row">
                 <label for="ssid">Сеть</label>
                 <a class="refresh" href="#" onclick="loadWifi(); return false;">Обновить список</a>
             </div>
             <select id="networks" onchange="pickNetwork()">
-                <option value="" disabled selected>Ищу сети…</option>
+                <option value="" disabled selected>Поиск сетей...</option>
             </select>
             <input class="manual" id="ssid" name="ssid" placeholder="Имя сети" required oninput="onSsidTyped()">
 
@@ -36,16 +41,13 @@
             </div>
 
             <button class="submit" id="submit">Сохранить</button>
+            <p class="error" id="error" hidden></p>
         </form>
-
-        <a class="nav" href="/mqtt">
-            <span>MQTT</span>
-            <span class="nav-status"><span id="mqtt-status">…</span> →</span>
-        </a>
 
         <form method="POST" action="/finish">
             <button class="finish" id="finish" disabled>Завершить настройку</button>
         </form>
+        <p class="hint finish-hint" id="finish-hint"></p>
     </div>
 
     <script>
@@ -53,7 +55,15 @@
         var mqttSaved = false;
 
         function updateFinish() {
-            document.getElementById("finish").disabled = !(wifiSaved && mqttSaved);
+            var missing = [];
+            if (!wifiSaved) missing.push("Wi-Fi");
+            if (!mqttSaved) missing.push("MQTT");
+
+            document.getElementById("finish").disabled = missing.length > 0;
+
+            var hint = document.getElementById("finish-hint");
+            hint.hidden = missing.length === 0;
+            hint.textContent = "Чтобы завершить, сохраните " + missing.join(" и ");
         }
 
         function signalBars(rssi) {
@@ -65,9 +75,9 @@
 
         function loadWifi() {
             var select = document.getElementById("networks");
-            select.length = 1; 
+            select.length = 1;
             select.selectedIndex = 0;
-            select.options[0].text = "Ищу сети…";
+            select.options[0].text = "Поиск сетей...";
 
             fetch("/api/wifi")
                 .then(function (response) { return response.json(); })
@@ -77,12 +87,16 @@
                 });
         }
 
+        function showSavedWifi(ssid) {
+            document.getElementById("saved-ssid").textContent = ssid;
+            document.getElementById("saved").hidden = false;
+            wifiSaved = true;
+            updateFinish();
+        }
+
         function showWifi(state) {
             if (state.saved_ssid) {
-                document.getElementById("saved-ssid").textContent = state.saved_ssid;
-                document.getElementById("saved").hidden = false;
-                wifiSaved = true;
-                updateFinish();
+                showSavedWifi(state.saved_ssid);
 
                 var ssidInput = document.getElementById("ssid");
                 if (!ssidInput.value) {
@@ -99,18 +113,51 @@
             select.options[0].text = state.networks.length > 0 ? "Выбрать из найденных…" : "Сети не найдены";
         }
 
-        function loadMqtt() {
-            fetch("/api/mqtt")
+        function loadStatus() {
+            fetch("/api/status")
                 .then(function (response) { return response.json(); })
-                .then(function (settings) {
-                    mqttSaved = settings.uri !== "";
-                    document.getElementById("mqtt-status").textContent = mqttSaved ? "сохранён" : "не настроен";
+                .then(function (status) {
+                    wifiSaved = status.wifi_saved;
+                    mqttSaved = status.mqtt_saved;
                     updateFinish();
                 });
         }
 
+        document.getElementById("form").addEventListener("submit", function (event) {
+            event.preventDefault();
+
+            var form = event.target;
+            var data = new URLSearchParams(new FormData(form));
+            var fields = form.querySelectorAll("input, select, button");
+            var button = document.getElementById("submit");
+            var error = document.getElementById("error");
+
+            fields.forEach(function (field) { field.disabled = true; });
+            button.textContent = "Сохранение...";
+            error.hidden = true;
+
+            fetch(form.action, { method: "POST", body: data })
+                .then(function (response) {
+                    return response.json().then(function (result) {
+                        if (!response.ok) {
+                            throw new Error(result.error);
+                        }
+                        showSavedWifi(document.getElementById("ssid").value);
+                    });
+                })
+                .catch(function (e) {
+                    error.textContent = "Не удалось сохранить: " + (e instanceof SyntaxError ? "плата не ответила" : e.message);
+                    error.hidden = false;
+                })
+                .finally(function () {
+                    fields.forEach(function (field) { field.disabled = false; });
+                    button.textContent = "Сохранить";
+                });
+        });
+
+        updateFinish();
+        loadStatus();
         loadWifi();
-        loadMqtt();
 
         function pickNetwork() {
             document.getElementById("ssid").value = document.getElementById("networks").value;
@@ -127,12 +174,6 @@
         function togglePassword() {
             var input = document.getElementById("password");
             input.type = input.type === "password" ? "text" : "password";
-        }
-
-        function onSaving() {
-            var button = document.getElementById("submit");
-            button.disabled = true;
-            button.textContent = "Сохранение...";
         }
     </script>
 </body>

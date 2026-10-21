@@ -80,16 +80,36 @@ label {
     color: var(--muted);
 }
 
-.refresh,
-.back {
+.refresh {
     font-size: 13px;
     color: var(--accent);
     text-decoration: none;
 }
 
-.back {
-    display: inline-block;
-    margin-bottom: 16px;
+.tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 20px;
+    background: var(--bg);
+    border-radius: 12px;
+}
+
+.tab {
+    flex: 1;
+    padding: 8px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+    text-decoration: none;
+    border-radius: 9px;
+}
+
+.tab.active {
+    color: var(--text);
+    font-weight: 600;
+    background: var(--card);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 input,
@@ -180,20 +200,22 @@ select:focus {
     word-break: break-all;
 }
 
-/* Строка-ссылка на другую страницу настройки */
-.nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 20px;
-    padding: 12px 14px;
-    color: var(--text);
-    text-decoration: none;
-    border: 1px solid var(--border);
+.error {
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #a32d2d;
+    background: #fcebeb;
     border-radius: 12px;
 }
 
-.nav-status {
-    font-size: 13px;
-    color: var(--muted);
+.field-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+}
+
+.finish-hint {
+    margin: 8px 0 0;
+    text-align: center;
 }

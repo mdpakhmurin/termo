@@ -84,10 +84,10 @@ static esp_err_t on_save_wifi(httpd_req_t *req)
     size_t ssid_length = strlen(ssid);
     size_t password_length = strlen(password);
     if (ssid_length == 0 || ssid_length >= WIFI_SSID_SIZE) {
-        return web_send_message(req, "Имя сети: от 1 до 32 символов");
+        return web_send_error(req, "Имя сети: от 1 до 32 символов");
     }
     if (password_length < 8 || password_length >= WIFI_PASSWORD_SIZE) {
-        return web_send_message(req, "Пароль: от 8 до 63 символов");
+        return web_send_error(req, "Пароль: от 8 до 63 символов");
     }
 
     wifi_credentials_t credentials;
@@ -96,11 +96,11 @@ static esp_err_t on_save_wifi(httpd_req_t *req)
 
     if (!wifi_save_credentials(&credentials)) {
         printf("Не удалось сохранить сеть\n");
-        return web_send_message(req, "Ошибка сохранения");
+        return web_send_error(req, "Ошибка сохранения");
     }
 
     printf("Сеть сохранена\n");
-    return web_redirect(req, "/");
+    return web_send_ok(req);
 }
 
 static esp_err_t on_get_mqtt(httpd_req_t *req)
@@ -143,14 +143,14 @@ static esp_err_t on_save_mqtt(httpd_req_t *req)
     size_t uri_length = strlen(uri);
     if (uri_length >= MQTT_URI_SIZE ||
         (strncmp(uri, "mqtt://", 7) != 0 && strncmp(uri, "mqtts://", 8) != 0)) {
-        return web_send_message(req, "Адрес должен начинаться с mqtt:// или mqtts:// (до 127 символов)");
+        return web_send_error(req, "Адрес должен начинаться с mqtt:// или mqtts:// (до 127 символов)");
     }
     if (strlen(username) >= MQTT_USERNAME_SIZE) {
-        return web_send_message(req, "Логин: до 63 символов");
+        return web_send_error(req, "Логин: до 63 символов");
     }
     size_t password_length = strlen(password);
     if (password_length == 0 || password_length >= MQTT_PASSWORD_SIZE) {
-        return web_send_message(req, "Пароль: от 1 до 63 символов");
+        return web_send_error(req, "Пароль: от 1 до 63 символов");
     }
 
     mqtt_settings_t settings;
@@ -160,11 +160,26 @@ static esp_err_t on_save_mqtt(httpd_req_t *req)
 
     if (!mqtt_save_settings(&settings)) {
         printf("Не удалось сохранить брокер\n");
-        return web_send_message(req, "Ошибка сохранения");
+        return web_send_error(req, "Ошибка сохранения");
     }
 
     printf("Брокер сохранён\n");
-    return web_redirect(req, "/mqtt");
+    return web_send_ok(req);
+}
+
+static esp_err_t on_get_status(httpd_req_t *req)
+{
+    wifi_credentials_t wifi;
+    mqtt_settings_t mqtt;
+    bool wifi_saved = wifi_load_credentials(&wifi);
+    bool mqtt_saved = mqtt_load_settings(&mqtt);
+
+    char json[64];
+    snprintf(json, sizeof(json), "{\"wifi_saved\":%s,\"mqtt_saved\":%s}",
+             wifi_saved ? "true" : "false",
+             mqtt_saved ? "true" : "false");
+
+    return web_send(req, "application/json", json);
 }
 
 static esp_err_t on_finish(httpd_req_t *req)
@@ -201,6 +216,7 @@ void setup_page_start(void)
         { .uri = "/style.css", .method = HTTP_GET,  .handler = on_get_style },
         { .uri = "/api/wifi",  .method = HTTP_GET,  .handler = on_get_wifi },
         { .uri = "/api/mqtt",  .method = HTTP_GET,  .handler = on_get_mqtt },
+        { .uri = "/api/status", .method = HTTP_GET, .handler = on_get_status },
         { .uri = "/save_wifi", .method = HTTP_POST, .handler = on_save_wifi },
         { .uri = "/save_mqtt", .method = HTTP_POST, .handler = on_save_mqtt },
         { .uri = "/finish",    .method = HTTP_POST, .handler = on_finish },

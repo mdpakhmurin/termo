@@ -26,6 +26,23 @@ esp_err_t web_redirect(httpd_req_t *req, const char *location)
     return httpd_resp_send(req, NULL, 0);
 }
 
+esp_err_t web_send_ok(httpd_req_t *req)
+{
+    return web_send(req, "application/json", "{\"ok\":true}");
+}
+
+esp_err_t web_send_error(httpd_req_t *req, const char *text)
+{
+    char safe_text[256];
+    json_escape(text, safe_text, sizeof(safe_text));
+
+    char json[300];
+    snprintf(json, sizeof(json), "{\"error\":\"%s\"}", safe_text);
+
+    httpd_resp_set_status(req, "400 Bad Request");
+    return web_send(req, "application/json", json);
+}
+
 bool web_read_form(httpd_req_t *req, char *body, size_t size)
 {
     if (req->content_len >= size) {

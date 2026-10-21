@@ -28,7 +28,7 @@
 #define ANTENNA_SELECT_GPIO     14 // выбор антенны: 0 — встроенная, 1 — внешняя
 
 // Сон между замерами
-#define SLEEP_SECONDS (1 * 60)
+#define SLEEP_SECONDS (10 * 60)
 
 // Сколько пытаемся отправить после пробуждения, прежде чем сдаться и уснуть
 #define SEND_TIMEOUT_MS (60 * 1000)
@@ -204,18 +204,22 @@ void setup_nvs(void)
 
 void print_wakeup_cause(void)
 {
-    switch (esp_sleep_get_wakeup_cause()) {
-        case ESP_SLEEP_WAKEUP_TIMER:
-            printf("Проснулись по таймеру\n");
-            break;
-        default:
-            printf("Обычное включение или RESET (не из сна)\n");
-            break;
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+
+    if (causes & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
+        printf("Проснулись по таймеру\n");
+    } else {
+        printf("Обычное включение или RESET (не из сна)\n");
     }
 }
 
 void go_to_sleep(void)
 {
+    while (gpio_get_level(BUTTON_GPIO) == 0) {
+        check_setup_button();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
     led_mode = LED_OFF;
     gpio_set_level(LED_GPIO, !LED_ON_LEVEL);
 

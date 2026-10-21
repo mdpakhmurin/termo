@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "mqtt_client.h"
+#include "esp_crt_bundle.h"
 #include "nvs.h"
 #include "mqtt.h"
 
@@ -35,6 +36,7 @@ void mqtt_start(const mqtt_settings_t *settings)
         .broker.address.uri = settings->uri,
         .credentials.username = settings->username,
         .credentials.authentication.password = settings->password,
+        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     client = esp_mqtt_client_init(&config);

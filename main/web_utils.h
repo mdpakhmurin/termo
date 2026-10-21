@@ -13,6 +13,12 @@ esp_err_t web_send_message(httpd_req_t *req, const char *text);
 // Редирект
 esp_err_t web_redirect(httpd_req_t *req, const char *location);
 
+// Ответ для fetch: «получилось» — {"ok":true}
+esp_err_t web_send_ok(httpd_req_t *req);
+
+// Ответ для fetch: «ошибка» — код 400 и {"error":"текст"}
+esp_err_t web_send_error(httpd_req_t *req, const char *text);
+
 // Прочитать тело формы в body
 bool web_read_form(httpd_req_t *req, char *body, size_t size);
 

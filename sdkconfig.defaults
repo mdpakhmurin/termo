@@ -1,0 +1,8 @@
+# Плата Seeed Studio XIAO ESP32-C6
+CONFIG_IDF_TARGET="esp32c6"
+
+# платы 4 МБ флеш-памяти
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Место под программу 1,5 МБ
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
